@@ -69,6 +69,8 @@
 #include <linux/can/raw.h>
 #include <linux/sockios.h>
 
+#include <libsocketcan.h>
+
 
 /*  -----------  options  ------------------------------------------------
  */
@@ -183,6 +185,9 @@ int can_init(int32_t board, uint8_t mode, const void *param)
     can_err_mask_t  err_mask = CAN_ERR_MASK;
     int i;
 
+    int ctl_fd;
+    struct ifreq netifr = { 0 };
+
     if(!init) {                         // when not init before:
         for(i = 0; i < CAN_MAX_HANDLES; i++) {
             can[i].fd = -1;
@@ -213,6 +218,31 @@ int can_init(int32_t board, uint8_t mode, const void *param)
 
         strncpy(can[i].ifname, ((struct _can_netdev_param*)param)->ifname, IFNAMSIZ);
         can[i].ifname[IFNAMSIZ] = '\0';
+
+        can_do_stop(can[i].ifname);
+
+	if (can_do_start(can[i].ifname) < 0)
+        {
+            return CANERR_NOTINIT;
+        }
+
+       ctl_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+        if (0 <= ctl_fd) 
+        {
+            strncpy(netifr.ifr_name, can[i].ifname, IFNAMSIZ);
+            netifr.ifr_qlen = 10000;
+            if (0 <= ioctl(ctl_fd, SIOCSIFTXQLEN, (void *) &netifr))
+            {
+                printf("%s TX queue length set to %d\n", netifr.ifr_name, netifr.ifr_qlen);
+            }
+            else
+            {
+                fprintf(stderr, "Note: Cannot set tx queue length on %s\n", ifr.ifr_name);
+            }
+            close(ctl_fd);
+        }
+
         can[i].family = ((struct _can_netdev_param*)param)->family;
         can[i].type = ((struct _can_netdev_param*)param)->type;
         can[i].protocol = ((struct _can_netdev_param*)param)->protocol;
@@ -246,7 +276,7 @@ int can_init(int32_t board, uint8_t mode, const void *param)
         {
             return CANERR_SOCKET;       //   errno is set!
         }
-        /* TODO: reset CAN controller */
+        can_do_restart(can[i].ifname);
         break;
     default:                            //   unknown CAN board
         return CANERR_ILLPARA;
@@ -261,8 +291,6 @@ int can_init(int32_t board, uint8_t mode, const void *param)
 EXPORT
 int can_exit(int handle)
 {
-    int i;
-
     if(!init)                           // must be initialized
         return CANERR_NOTINIT;
     if(handle != CANEXIT_ALL) {
@@ -271,23 +299,27 @@ int can_exit(int handle)
         if(can[handle].fd < 0)          // must be an opened handle
             return CANERR_HANDLE;
 
-        /*if(!can[handle].status.b.can_stopped) // release the CAN interface!*/
+        if(!can[handle].status.b.can_stopped) // release the CAN interface!
         {
-            /* TODO: reset CAN controller */
+            can_do_stop(can[handle].ifname);
         }
+
         close(can[handle].fd);          // resistance is futile!
 
         can[handle].status.byte |= CANSTAT_RESET;// CAN controller in INIT state
         can[handle].fd = -1;            // handle can be used again
     }
     else {
+        int i;
+
         for(i = 0; i < CAN_MAX_HANDLES; i++) {
             if(can[i].fd >= 0)          // must be an opened handle
             {
-                /*if(!can[i].status.b.can_stopped) // release the CAN interface!*/
+                if(!can[i].status.b.can_stopped) // release the CAN interface!
                 {
-                    /* TODO: reset CAN controller */
+                    can_do_stop(can[i].ifname);
                 }
+
                 close(can[i].fd);       // resistance is futile!
 
                 can[i].status.byte |= CANSTAT_RESET;// CAN controller in INIT state
@@ -301,6 +333,8 @@ int can_exit(int handle)
 EXPORT
 int can_start(int handle, const can_bitrate_t *bitrate)
 {
+    uint32_t baudrate = 0;
+
     if(!init)                           // must be initialized
         return CANERR_NOTINIT;
     if(!IS_HANDLE_VALID(handle))        // must be a valid handle
@@ -311,12 +345,25 @@ int can_start(int handle, const can_bitrate_t *bitrate)
         return CANERR_NULLPTR;
     if(!can[handle].status.b.can_stopped)// must be stopped!
         return CANERR_ONLINE;
+   
+    switch (bitrate->index) {
+        case CANBTR_INDEX_1M: baudrate = 1000000; break;
+        case CANBTR_INDEX_800K: baudrate = 800000; break;
+        case CANBTR_INDEX_500K: baudrate = 500000; break;
+        case CANBTR_INDEX_250K: baudrate = 250000; break;
+        case CANBTR_INDEX_125K: baudrate = 125000; break;
+        case CANBTR_INDEX_100K: baudrate = 100000; break;
+        case CANBTR_INDEX_50K: baudrate = 50000; break;
+        case CANBTR_INDEX_20K: baudrate = 20000; break;
+        case CANBTR_INDEX_10K: baudrate = 10000; break;
+        default: return CANERR_BAUDRATE;
+    }
 
-    // bit-rate is configured externally!
-    if(bitrate->index != CANBDR_SOCKET)
+    if(can_set_bitrate(can[handle].ifname, baudrate) <  0)
         return CANERR_BAUDRATE;
-    /* TODO: set baud rate */
-    /* TODO: start CAN controller */
+
+    can_do_restart(can[handle].ifname);
+
     can[handle].status.byte = 0x00;     // clear old status bits and counters
     can[handle].counters.tx = 0ull;
     can[handle].counters.rx = 0ull;
@@ -337,7 +384,7 @@ int can_reset(int handle)
         return CANERR_HANDLE;
 
     if(can[handle].status.b.can_stopped) { // when running then go bus off
-        /* TODO: reset CAN controller */
+        can_do_restart(can[handle].ifname);
     }
     can[handle].status.b.can_stopped = 1; // CAN controller stopped!
 
@@ -583,10 +630,30 @@ int can_bitrate(int handle, can_bitrate_t *bitrate, can_speed_t *speed)
     if(can[handle].fd < 0)              // must be an opened handle
         return CANERR_HANDLE;
 
-    /* TODO: get bit-rate settings */
-    if(!can[handle].status.b.can_stopped)
+    if(!can[handle].status.b.can_stopped) {
+        struct can_bittiming bittiming = { 0 };
+
+        if(can_get_bittiming(can[handle].ifname, &bittiming) <  0)
+            return CANERR_BAUDRATE;
+
+        switch (bittiming.bitrate) {
+            case 1000000: bitrate->index = CANBTR_INDEX_1M; break;
+            case 800000: bitrate->index = CANBTR_INDEX_800K; break;
+            case 500000: bitrate->index = CANBTR_INDEX_500K; break;
+            case 250000: bitrate->index = CANBTR_INDEX_250K; break;
+            case 125000: bitrate->index = CANBTR_INDEX_125K; break;
+            case 100000: bitrate->index = CANBTR_INDEX_100K; break;
+            case 50000: bitrate->index = CANBTR_INDEX_50K; break;
+            case 20000: bitrate->index = CANBTR_INDEX_20K; break;
+            case 10000: bitrate->index = CANBTR_INDEX_10K; break;
+            default: return CANERR_BAUDRATE;
+        }
+
+        speed->nominal.speed = (float)bittiming.bitrate;
+	speed->nominal.samplepoint = (float)bittiming.sample_point;
+
         rc = CANERR_NOERROR;
-    else
+    } else
         rc = CANERR_OFFLINE;
     return rc;
 }

@@ -50,7 +50,7 @@ LDFLAGS += --shared -Wl,-soname,$(SONAME)
 
 ARFLAGS = r
 
-LIBRARIES = -lc -lpthread
+LIBRARIES = -lc -lpthread -lsocketcan
 
 CC = gcc
 LD = gcc
