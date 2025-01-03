@@ -19,7 +19,7 @@ CFLAGS	= -O2 -Wall -Wno-parentheses \
 	-fno-strict-aliasing \
 	-I$(DRV)
 
-LIBRARIES = -lpthread
+LIBRARIES = -lpthread -lsocketcan
 
 LDFLAGS =
 

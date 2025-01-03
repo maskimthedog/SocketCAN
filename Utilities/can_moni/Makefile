@@ -38,6 +38,8 @@ CANAPI3 = ../../Sources
 
 OBJECTS = $(OUTDIR)/main.o $(OUTDIR)/can_api.o
 
+LIBRARIES = -lc -lpthread -lsocketcan
+
 MAIN_DEPS = $(CANAPI3)/can_api.h $(CANAPI3)/can_defs.h
 
 CAN_API_DEPS = $(CANAPI3)/can_api.h $(CANAPI3)/can_defs.h
@@ -68,7 +70,7 @@ $(OUTDIR)/can_api.o: $(CANAPI3)/can_api.c $(CAN_API_DEPS)
 
 
 $(PROGRAM): $(OBJECTS)
-	gcc -o $(PROGRAM) $(OBJECTS)
+	gcc -o $(PROGRAM) $(OBJECTS) $(LIBRARIES)
 
 
 # #############################################################################
