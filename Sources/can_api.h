@@ -272,6 +272,11 @@ extern "C" {
 #define CANPROP_GET_TX_COUNTER      24  /**< total number of sent messages (uint64_t) */
 #define CANPROP_GET_RX_COUNTER      25  /**< total number of reveiced messages (uint64_t) */
 #define CANPROP_GET_ERR_COUNTER     26  /**< total number of reveiced error frames (uint64_t) */
+#define CANPROP_GET_FILTER_11BIT    27  /**< acceptance filter code and mask for 11-bit identifier (uint64_t) */
+#define CANPROP_GET_FILTER_29BIT    28  /**< acceptance filter code and mask for 29-bit identifier (uint64_t) */
+#define CANPROP_SET_FILTER_11BIT    29  /**< set value for acceptance filter code and mask for 11-bit identifier (uint64_t) */
+#define CANPROP_SET_FILTER_29BIT    30  /**< set value for acceptance filter code and mask for 29-bit identifier (uint64_t) */
+#define CANPROP_SET_FILTER_RESET    31  /**< reset acceptance filter code and mask to default values (NULL) */
 /* - -  access to vendor-specific properties  - - - - - - - - - - - - - */
 #define CANPROP_GET_VENDOR_PROP    256  /**< get a vendor-specific property value (void*) */
 #define CANPROP_SET_VENDOR_PROP    512  /**< set a vendor-specific property value (void*) */

@@ -111,6 +111,16 @@ static void _finalizer() {
 #define LEN2DLC(x)              len2dlc(x)
 #endif
 
+#define FILTER_STD_CODE         (uint32_t)(0x000)
+#define FILTER_STD_MASK         (uint32_t)(0x000)
+#define FILTER_XTD_CODE         (uint32_t)(0x00000000)
+#define FILTER_XTD_MASK         (uint32_t)(0x00000000)
+#define FILTER_STD_XOR_MASK     (uint64_t)(0x00000000000007FF)
+#define FILTER_XTD_XOR_MASK     (uint64_t)(0x000000001FFFFFFF)
+#define FILTER_STD_VALID_MASK   (uint64_t)(0x000007FF000007FF)
+#define FILTER_XTD_VALID_MASK   (uint64_t)(0x1FFFFFFF1FFFFFFF)
+#define FILTER_RESET_VALUE      (uint64_t)(0x0000000000000000)
+
 /*  -----------  types  --------------------------------------------------
  */
 typedef struct {                        // frame counters:
@@ -811,6 +821,7 @@ static int drv_parameter(int handle, uint16_t param, void *value, size_t nbytes)
     //can_mode_t mode;
     uint8_t status;
     uint8_t load;
+    int sts;
 
     assert(IS_HANDLE_VALID(handle));    // just to make sure
 
@@ -898,6 +909,90 @@ static int drv_parameter(int handle, uint16_t param, void *value, size_t nbytes)
             *(uint64_t*)value = (uint64_t)can[handle].counters.err;
             rc = CANERR_NOERROR;
         }
+        break;
+    case CANPROP_GET_FILTER_11BIT:      // acceptance filter code and mask for 11-bit identifier (uint64_t)
+        if (nbytes >= sizeof(uint64_t)) {
+	    struct can_filter rfilter;
+            uint32_t len;
+
+	    if ((sts = getsockopt(can[handle].fd, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, &len)) == 0) {
+               (*(uint64_t*)value) = (((uint64_t)rfilter.can_id) << 32) | ((uint64_t)(rfilter.can_mask));
+               rc = CANERR_NOERROR;
+            }
+            else
+               rc = CANERR_FATAL;
+        }
+        break;
+    case CANPROP_GET_FILTER_29BIT:      // acceptance filter code and mask for 29-bit identifier (uint64_t)
+        if (nbytes >= sizeof(uint64_t)) {
+	    struct can_filter rfilter;
+            uint32_t len;
+
+	    if ((sts = getsockopt(can[handle].fd, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, &len)) == 0) {
+               (*(uint64_t*)value) = (((uint64_t)rfilter.can_id) << 32) | ((uint64_t)(rfilter.can_mask));
+               rc = CANERR_NOERROR;
+            }
+            else
+               rc = CANERR_FATAL;
+        }
+        break;
+    case CANPROP_SET_FILTER_11BIT:      // set value for acceptance filter code and mask for 11-bit identifier (uint64_t)
+        if (nbytes >= sizeof(uint64_t)) {
+            if (!(*(uint64_t*)value & ~FILTER_STD_VALID_MASK)) {
+                // note: code and mask must not exceed 11-bit identifier
+                if (can[handle].status.b.can_stopped) {
+	            struct can_filter rfilter = {0};
+
+	            rfilter.can_id   = ((uint32_t)((*(uint64_t*)value) >> 32));
+	            rfilter.can_mask = (uint32_t)((*(uint64_t*)value) & 0xFFFFFFFF);
+	            if ((sts = setsockopt(can[handle].fd, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter))) == 0)
+                        rc = CANERR_NOERROR;
+                    else
+                        rc = CANERR_FATAL;
+                }
+                else
+                    rc = CANERR_ONLINE;
+            }
+            else
+                rc = CANERR_ILLPARA;
+        }
+        break;
+    case CANPROP_SET_FILTER_29BIT:      // set value for acceptance filter code and mask for 29-bit identifier (uint64_t)
+        if (nbytes >= sizeof(uint64_t)) {
+            if (!(*(uint64_t*)value & ~FILTER_XTD_VALID_MASK) && !can[handle].mode.b.nxtd) {
+                // note: code and mask must not exceed 29-bit identifier and
+                //       extended frame format mode must not be suppressed
+                if (can[handle].status.b.can_stopped) {
+	            struct can_filter rfilter = {0};
+
+	            rfilter.can_id   = CAN_EFF_FLAG | ((uint32_t)((*(uint64_t*)value) >> 32));
+	            rfilter.can_mask = (uint32_t)((*(uint64_t*)value) & 0xFFFFFFFF);
+	            if ((sts = setsockopt(can[handle].fd, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter))) == 0)
+                        rc = CANERR_NOERROR;
+                    else
+                        rc = CANERR_FATAL;
+                }
+                else
+                    rc = CANERR_ONLINE;
+            }
+            else
+                rc = CANERR_ILLPARA;
+        }
+        break;
+    case CANPROP_SET_FILTER_RESET:      // reset acceptance filter code and mask to default values (NULL)
+        if (can[handle].status.b.can_stopped) {
+            // note: reset filter only if the CAN controller is in INIT mode
+	    struct can_filter rfilter;
+
+	    rfilter.can_id   = 0;
+	    rfilter.can_mask = CAN_SFF_MASK;
+	    if ((sts = setsockopt(can[handle].fd, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter))) == 0)
+                rc = CANERR_NOERROR;
+            else
+                rc = CANERR_FATAL;
+        }
+        else
+            rc = CANERR_ONLINE;
         break;
     default:
         rc = lib_parameter(param, value, nbytes);
