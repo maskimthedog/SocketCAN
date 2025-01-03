@@ -185,6 +185,9 @@ int can_init(int32_t board, uint8_t mode, const void *param)
     can_err_mask_t  err_mask = CAN_ERR_MASK;
     int i;
 
+    int ctl_fd;
+    struct ifreq netifr = { 0 };
+
     if(!init) {                         // when not init before:
         for(i = 0; i < CAN_MAX_HANDLES; i++) {
             can[i].fd = -1;
@@ -221,6 +224,23 @@ int can_init(int32_t board, uint8_t mode, const void *param)
 	if (can_do_start(can[i].ifname) < 0)
         {
             return CANERR_NOTINIT;
+        }
+
+       ctl_fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+        if (0 <= ctl_fd) 
+        {
+            strncpy(netifr.ifr_name, can[i].ifname, IFNAMSIZ);
+            netifr.ifr_qlen = 10000;
+            if (0 <= ioctl(ctl_fd, SIOCSIFTXQLEN, (void *) &netifr))
+            {
+                printf("%s TX queue length set to %d\n", netifr.ifr_name, netifr.ifr_qlen);
+            }
+            else
+            {
+                fprintf(stderr, "Note: Cannot set tx queue length on %s\n", ifr.ifr_name);
+            }
+            close(ctl_fd);
         }
 
         can[i].family = ((struct _can_netdev_param*)param)->family;
